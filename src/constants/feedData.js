@@ -51,7 +51,7 @@ export const DEPARTMENTS = [
     name: 'Electrical Department', 
     shortName: 'Electrical',
     code: 'ELEC',
-    role: 'Electrical Engineer',
+    role: 'Shift Electrician',
     quote: 'Uninterrupted power driving non-stop plant productivity.',
     desc: 'HT electricity consumption (kWh), DG fuel monitoring, and power outage logs.',
     icon: 'Zap',
@@ -59,8 +59,8 @@ export const DEPARTMENTS = [
     lightBg: 'bg-sky-50 dark:bg-sky-950/30',
     borderColor: 'border-sky-200 dark:border-sky-800',
     accentColor: '#38bdf8',
-    defaultUser: 'Electrical In-Charge',
-    defaultRole: 'electrical_engineer'
+    defaultUser: 'Shift Electrician',
+    defaultRole: 'shift_electrician'
   },
   { 
     id: 'godown', 

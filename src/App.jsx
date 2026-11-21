@@ -26,6 +26,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [selectedDeptForLogin, setSelectedDeptForLogin] = useState(null);
   const [selectedSubRole, setSelectedSubRole] = useState('shift');
+  const [electricalSubTab, setElectricalSubTab] = useState('shift'); // 'shift' | 'day' | 'reports'
   
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('sml_theme');
@@ -105,6 +106,8 @@ export default function App() {
         onOpenFirebaseModal={() => setIsFirebaseModalOpen(true)}
         pendingApprovalsCount={pendingApprovalsCount}
         onGoHome={handleGoHome}
+        electricalSubTab={electricalSubTab}
+        setElectricalSubTab={setElectricalSubTab}
       />
 
       {/* Main Content Area */}
@@ -143,6 +146,8 @@ export default function App() {
           <ElectricalTab 
             activeUser={activeUser}
             onUpdateActiveUser={handleUpdateActiveUser}
+            subTab={electricalSubTab}
+            setSubTab={setElectricalSubTab}
           />
         )}
         {activeTab === 'godown' && (

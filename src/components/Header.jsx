@@ -12,7 +12,8 @@ import {
   LayoutGrid,
   Building2,
   Layers,
-  Clock
+  Clock,
+  FileSpreadsheet
 } from 'lucide-react';
 import { 
   DEPARTMENTS, 
@@ -39,7 +40,9 @@ export default function Header({
   onLogout,
   onOpenFirebaseModal,
   pendingApprovalsCount = 0,
-  onGoHome
+  onGoHome,
+  electricalSubTab = 'shift',
+  setElectricalSubTab
 }) {
   const isCloud = isFirebaseConnected();
   const currentDept = DEPARTMENTS.find(d => d.id === activeTab);
@@ -284,33 +287,97 @@ export default function Header({
             </div>
           </div>
 
-          {/* Department Navigation Ribbon */}
-          <div className="bg-white dark:bg-[#0c1f2b] border-t border-cyan-100 dark:border-cyan-950 px-2 sm:px-6 animate-fade-in shadow-inner">
-            <div className="max-w-7xl mx-auto flex items-center overflow-x-auto no-scrollbar py-2 gap-1.5 sm:gap-2">
-              {DEPARTMENTS.map((dept) => {
-                const Icon = iconMap[dept.icon] || Factory;
-                const isActive = activeTab === dept.id;
-                return (
+          {/* Navigation Ribbon */}
+          {activeTab === 'electrical' ? (
+            /* ELECTRICAL EXCLUSIVE NAVIGATION: 3 CLEAN TABS (SHIFT REPORT, DAY REPORT, REPORTS) */
+            <div className="bg-sky-50/70 dark:bg-[#0c1f2b] border-t border-sky-200/70 dark:border-sky-950 px-2 sm:px-6 animate-fade-in shadow-xs">
+              <div className="max-w-7xl mx-auto flex items-center justify-between py-2 gap-2">
+                
+                {/* Left: Department Tag & Sub-Tabs */}
+                <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar">
+                  <span className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-sky-800 dark:text-sky-300 bg-sky-100/70 dark:bg-sky-950/50 rounded-xl border border-sky-300/40 mr-1 shrink-0">
+                    <Zap className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                    <span>Electrical</span>
+                  </span>
+
                   <button
-                    key={dept.id}
-                    onClick={() => setActiveTab(dept.id)}
-                    className={`relative flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all duration-200 ${
-                      isActive
-                        ? 'bg-gradient-to-r from-[#00b4d8] to-[#0284c7] text-white shadow-md shadow-cyan-500/20 scale-[1.02]'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-cyan-50 dark:hover:bg-[#07131b] hover:text-slate-900 dark:hover:text-white'
+                    onClick={() => setElectricalSubTab && setElectricalSubTab('shift')}
+                    className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all duration-200 cursor-pointer ${
+                      electricalSubTab === 'shift'
+                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-sm shadow-sky-500/25 scale-[1.01]'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-100/70 dark:hover:bg-[#07131b] hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-cyan-500'}`} />
-                    <span>{dept.shortName}</span>
-
-                    {dept.id === 'manager' && pendingApprovalsCount > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute -top-0.5 -right-0.5" />
-                    )}
+                    <Zap className={`w-3.5 h-3.5 ${electricalSubTab === 'shift' ? 'text-white' : 'text-sky-500'}`} />
+                    <span>Shift Report</span>
                   </button>
-                );
-              })}
+
+                  <button
+                    onClick={() => setElectricalSubTab && setElectricalSubTab('day')}
+                    className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all duration-200 cursor-pointer ${
+                      electricalSubTab === 'day'
+                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-sm shadow-sky-500/25 scale-[1.01]'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-100/70 dark:hover:bg-[#07131b] hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Sun className={`w-3.5 h-3.5 ${electricalSubTab === 'day' ? 'text-white' : 'text-amber-500'}`} />
+                    <span>Day Report</span>
+                  </button>
+
+                  <button
+                    onClick={() => setElectricalSubTab && setElectricalSubTab('reports')}
+                    className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all duration-200 cursor-pointer ${
+                      electricalSubTab === 'reports'
+                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-sm shadow-sky-500/25 scale-[1.01]'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-100/70 dark:hover:bg-[#07131b] hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <FileSpreadsheet className={`w-3.5 h-3.5 ${electricalSubTab === 'reports' ? 'text-white' : 'text-teal-500'}`} />
+                    <span>Reports</span>
+                  </button>
+                </div>
+
+                {/* Right: Quick Return to Welcome Screen / All Departments */}
+                <button
+                  onClick={onGoHome}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-sky-700 hover:bg-white dark:hover:bg-[#07131b] border border-transparent hover:border-sky-200 transition shrink-0 cursor-pointer"
+                  title="Switch Department / Back to Welcome Screen"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 text-sky-500" />
+                  <span className="hidden sm:inline">All Departments</span>
+                </button>
+
+              </div>
             </div>
-          </div>
+          ) : (
+            /* STANDARD DEPARTMENT NAVIGATION RIBBON */
+            <div className="bg-white dark:bg-[#0c1f2b] border-t border-cyan-100 dark:border-cyan-950 px-2 sm:px-6 animate-fade-in shadow-inner">
+              <div className="max-w-7xl mx-auto flex items-center overflow-x-auto no-scrollbar py-2 gap-1.5 sm:gap-2">
+                {DEPARTMENTS.map((dept) => {
+                  const Icon = iconMap[dept.icon] || Factory;
+                  const isActive = activeTab === dept.id;
+                  return (
+                    <button
+                      key={dept.id}
+                      onClick={() => setActiveTab(dept.id)}
+                      className={`relative flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all duration-200 ${
+                        isActive
+                          ? 'bg-gradient-to-r from-[#00b4d8] to-[#0284c7] text-white shadow-md shadow-cyan-500/20 scale-[1.02]'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-cyan-50 dark:hover:bg-[#07131b] hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-cyan-500'}`} />
+                      <span>{dept.shortName}</span>
+
+                      {dept.id === 'manager' && pendingApprovalsCount > 0 && (
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute -top-0.5 -right-0.5" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
 

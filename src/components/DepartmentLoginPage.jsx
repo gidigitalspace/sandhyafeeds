@@ -48,8 +48,8 @@ const DEFAULT_CREDENTIALS = {
   },
   electrical: {
     email: 'electrical@sandhyamarines.com',
-    name: 'Electrical In-Charge',
-    role: 'electrical_engineer',
+    name: 'Shift Electrician',
+    role: 'shift_electrician',
     title: 'Electrical Department'
   },
   godown: {

@@ -192,7 +192,7 @@ export function initSeedData() {
       totalDieselConsumedLiters: 84,
       solarDayGen: 1480,
       solarDayExport: 95,
-      electricalIncharge: 'K. Ramesh (Electrical Engineer)',
+      electricalIncharge: 'K. Ramesh (Shift Electrician)',
       reportTime: `${yesterday}T23:30:00Z`,
       status: 'Approved',
       approvedBy: 'General Plant Manager',
@@ -209,9 +209,9 @@ export function initSeedData() {
       dayTotalKwh: 11200,
       dayPowerFactor: '0.982',
       shifts: {
-        'Shift A': { consumedKwh: 3800, diffMwh: 3.800, diffMvah: 3.865, powerFactor: 0.983, submittedBy: 'K. Ramesh (Electrical)' },
-        'Shift B': { consumedKwh: 3950, diffMwh: 3.950, diffMvah: 4.020, powerFactor: 0.983, submittedBy: 'K. Ramesh (Electrical)' },
-        'Shift C': { consumedKwh: 3450, diffMwh: 3.450, diffMvah: 3.525, powerFactor: 0.979, submittedBy: 'M. Srinu (Electrical)' }
+        'Shift A': { consumedKwh: 3800, diffMwh: 3.800, diffMvah: 3.865, powerFactor: 0.983, submittedBy: 'K. Ramesh (Electrician)' },
+        'Shift B': { consumedKwh: 3950, diffMwh: 3.950, diffMvah: 4.020, powerFactor: 0.983, submittedBy: 'K. Ramesh (Electrician)' },
+        'Shift C': { consumedKwh: 3450, diffMwh: 3.450, diffMvah: 3.525, powerFactor: 0.979, submittedBy: 'M. Srinu (Electrician)' }
       },
       powerCuts: [{ id: 'PC-91', startTime: '15:20', endTime: '15:45', durationMins: 25, reason: 'Feeder Maintenance' }],
       totalPowerCutMinutes: 25,
@@ -222,7 +222,7 @@ export function initSeedData() {
       solarDayExport: 105,
       status: 'Approved',
       approvedBy: 'General Plant Manager',
-      electricalIncharge: 'K. Ramesh (Electrical Engineer)'
+      electricalIncharge: 'K. Ramesh (Shift Electrician)'
     },
     {
       date: '2026-11-19',
@@ -231,9 +231,9 @@ export function initSeedData() {
       dayTotalKwh: 10850,
       dayPowerFactor: '0.984',
       shifts: {
-        'Shift A': { consumedKwh: 3700, diffMwh: 3.700, diffMvah: 3.755, powerFactor: 0.985, submittedBy: 'K. Ramesh (Electrical)' },
-        'Shift B': { consumedKwh: 3850, diffMwh: 3.850, diffMvah: 3.910, powerFactor: 0.985, submittedBy: 'K. Ramesh (Electrical)' },
-        'Shift C': { consumedKwh: 3300, diffMwh: 3.300, diffMvah: 3.365, powerFactor: 0.981, submittedBy: 'M. Srinu (Electrical)' }
+        'Shift A': { consumedKwh: 3700, diffMwh: 3.700, diffMvah: 3.755, powerFactor: 0.985, submittedBy: 'K. Ramesh (Electrician)' },
+        'Shift B': { consumedKwh: 3850, diffMwh: 3.850, diffMvah: 3.910, powerFactor: 0.985, submittedBy: 'K. Ramesh (Electrician)' },
+        'Shift C': { consumedKwh: 3300, diffMwh: 3.300, diffMvah: 3.365, powerFactor: 0.981, submittedBy: 'M. Srinu (Electrician)' }
       },
       powerCuts: [],
       totalPowerCutMinutes: 0,
@@ -244,7 +244,7 @@ export function initSeedData() {
       solarDayExport: 125,
       status: 'Approved',
       approvedBy: 'General Plant Manager',
-      electricalIncharge: 'K. Ramesh (Electrical Engineer)'
+      electricalIncharge: 'K. Ramesh (Shift Electrician)'
     }
   ];
 
@@ -304,12 +304,22 @@ export function initSeedData() {
       totalDieselConsumedLiters: 0,
       solarDayGen: 1540,
       solarDayExport: 110,
-      electricalIncharge: 'K. Ramesh (Electrical Engineer)',
+      electricalIncharge: 'Shift Electrician',
       reportTime: new Date().toISOString(),
       status: 'Submitted'
     };
-    writeLocal(KEYS.ELECTRICAL, allElec);
   }
+
+  // Sanitize any existing cached entries to ensure "Shift Electrician" is always used
+  Object.keys(allElec).forEach(d => {
+    if (allElec[d]?.electricalIncharge) {
+      allElec[d].electricalIncharge = allElec[d].electricalIncharge
+        .replace(/Electrical Engineer/gi, 'Shift Electrician')
+        .replace(/Engineer/gi, 'Electrician');
+    }
+  });
+
+  writeLocal(KEYS.ELECTRICAL, allElec);
 }
 
 // ==========================================
@@ -596,6 +606,12 @@ export async function getElectricalData(date) {
     } catch (e) {
       console.warn('Firestore electrical fetch error:', e);
     }
+  }
+
+  if (record && record.electricalIncharge) {
+    record.electricalIncharge = record.electricalIncharge
+      .replace(/Electrical Engineer/gi, 'Shift Electrician')
+      .replace(/Engineer/gi, 'Electrician');
   }
 
   return record || null;
