@@ -1,0 +1,17 @@
+{
+  "name": "Sandhya Marines Ltd (SML Feeds)",
+  "short_name": "SML Feeds",
+  "description": "Aqua Feed Mill Management System - Sandhya Marines Ltd",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07131b",
+  "theme_color": "#0a4b67",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
