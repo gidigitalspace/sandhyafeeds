@@ -812,27 +812,7 @@ export function getMonthlyElectricalHistory(yearMonth) {
   };
 }
 
-// Plant Manager approval of Day Power Report
-export async function approveElectricalDayReport(date, managerName = 'General Plant Manager') {
-  const allElec = readLocal(KEYS.ELECTRICAL, {});
-  if (allElec[date]) {
-    allElec[date].status = 'Approved';
-    allElec[date].approvedBy = managerName;
-    allElec[date].approvedAt = new Date().toISOString();
-    writeLocal(KEYS.ELECTRICAL, allElec);
-
-    const db = getDb();
-    if (db) {
-      try {
-        await setDoc(doc(db, 'electrical', date), allElec[date]);
-      } catch (e) {
-        console.warn('Firestore approval sync error:', e);
-      }
-    }
-    return allElec[date];
-  }
-  return null;
-}
+// Electrical Day Power Report Approval (by Electrical Engineer or Plant Manager)
 
 // ==========================================
 // 6. LEAVE APPLICATIONS
@@ -890,8 +870,60 @@ export async function updateLeaveStatus(leaveId, status) {
 // ==========================================
 
 export function getPlantSettings() {
-  return readLocal(KEYS.SETTINGS, { autoApprove: false });
+  return readLocal(KEYS.SETTINGS, { 
+    autoApprove: false, 
+    autoApproveElectrical: false,
+    autoApproveElectricalShift: false 
+  });
 }
+
+export function getElectricalSettings() {
+  const settings = readLocal(KEYS.SETTINGS, {});
+  return {
+    autoApproveShift: settings.autoApproveElectricalShift ?? false,
+    autoApproveDayReport: settings.autoApproveElectrical ?? false
+  };
+}
+
+export async function updateElectricalSettings(updates = {}) {
+  const patch = {};
+  if (updates.autoApproveShift !== undefined) {
+    patch.autoApproveElectricalShift = !!updates.autoApproveShift;
+  }
+  if (updates.autoApproveDayReport !== undefined) {
+    patch.autoApproveElectrical = !!updates.autoApproveDayReport;
+  }
+  return updatePlantSettings(patch);
+}
+
+export async function approveElectricalShift(date, shiftName, approvedBy = 'Electrical Engineer') {
+  const allElec = readLocal(KEYS.ELECTRICAL, {});
+  const data = allElec[date];
+  if (!data || !data.shifts || !data.shifts[shiftName]) return null;
+  data.shifts[shiftName].status = 'Approved';
+  data.shifts[shiftName].approvedBy = approvedBy;
+  data.shifts[shiftName].approvedAt = new Date().toISOString();
+  return saveElectricalData(data);
+}
+
+export async function approveElectricalDayReport(date, approvedBy = 'Electrical Engineer') {
+  const allElec = readLocal(KEYS.ELECTRICAL, {});
+  const data = allElec[date];
+  if (!data) return null;
+  data.status = 'Approved';
+  data.approvedBy = approvedBy;
+  data.approvedAt = new Date().toISOString();
+  if (data.shifts) {
+    Object.keys(data.shifts).forEach(sh => {
+      if (data.shifts[sh]) {
+        data.shifts[sh].status = 'Approved';
+        data.shifts[sh].approvedBy = approvedBy;
+      }
+    });
+  }
+  return saveElectricalData(data);
+}
+
 
 export async function updatePlantSettings(settings) {
   const cur = readLocal(KEYS.SETTINGS, {});

@@ -46,10 +46,25 @@ const DEFAULT_CREDENTIALS = {
     subRole: 'general',
     title: 'Production — General In-Charge'
   },
-  electrical: {
-    email: 'electrical@sandhyamarines.com',
+  electrical_shift: {
+    email: 'electrician@sandhyamarines.com',
     name: 'Shift Electrician',
     role: 'shift_electrician',
+    subRole: 'shift',
+    title: 'Electrical Department — Shift Electrician'
+  },
+  electrical_incharge: {
+    email: 'electrical.engineer@sandhyamarines.com',
+    name: 'Electrical Engineer',
+    role: 'electrical_incharge',
+    subRole: 'incharge',
+    title: 'Electrical In-Charge (Engineer)'
+  },
+  electrical: {
+    email: 'electrician@sandhyamarines.com',
+    name: 'Shift Electrician',
+    role: 'shift_electrician',
+    subRole: 'shift',
     title: 'Electrical Department'
   },
   godown: {
@@ -78,13 +93,18 @@ export default function DepartmentLoginPage({ dept, initialSubRole = 'shift', on
   const isCloud = isFirebaseConnected();
 
   const isProduction = dept.id === 'production';
-  const [subRole, setSubRole] = useState(initialSubRole); // 'shift' or 'general'
+  const isElectrical = dept.id === 'electrical';
+  const [subRole, setSubRole] = useState(initialSubRole); // 'shift', 'general' (production) or 'shift', 'incharge' (electrical)
   
   // Shift In-Charge is the ONLY role with Unit and Shift selection
   const showUnitAndShiftSelection = isProduction && subRole === 'shift';
 
   // Determine key for credentials
-  const credKey = isProduction ? `production_${subRole}` : dept.id;
+  const credKey = isProduction 
+    ? `production_${subRole}` 
+    : isElectrical 
+    ? `electrical_${subRole === 'incharge' ? 'incharge' : 'shift'}`
+    : dept.id;
   const currentCred = DEFAULT_CREDENTIALS[credKey] || {
     email: `${dept.id}@sandhyamarines.com`,
     name: dept.defaultUser,
@@ -100,11 +120,13 @@ export default function DepartmentLoginPage({ dept, initialSubRole = 'shift', on
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState('');
 
-  // Handle switching sub-role in Production
+  // Handle switching sub-role in Production or Electrical
   const handleSubRoleChange = (newSub) => {
     setSubRole(newSub);
     setAuthError('');
-    const newCredKey = `production_${newSub}`;
+    const newCredKey = isProduction 
+      ? `production_${newSub}` 
+      : `electrical_${newSub}`;
     const targetCred = DEFAULT_CREDENTIALS[newCredKey];
     if (targetCred) {
       setEmail(targetCred.email);
@@ -146,7 +168,7 @@ export default function DepartmentLoginPage({ dept, initialSubRole = 'shift', on
         name: currentCred.name,
         email: email.trim(),
         role: currentCred.role,
-        subRole: isProduction ? subRole : undefined,
+        subRole: (isProduction || isElectrical) ? subRole : undefined,
         unit: assignedUnit,
         shift: assignedShift,
         departmentId: dept.id,
@@ -159,7 +181,7 @@ export default function DepartmentLoginPage({ dept, initialSubRole = 'shift', on
         name: currentCred.name,
         email: email.trim(),
         role: currentCred.role,
-        subRole: isProduction ? subRole : undefined,
+        subRole: (isProduction || isElectrical) ? subRole : undefined,
         unit: assignedUnit,
         shift: assignedShift,
         departmentId: dept.id,
@@ -176,7 +198,7 @@ export default function DepartmentLoginPage({ dept, initialSubRole = 'shift', on
       name: currentCred.name,
       email: currentCred.email,
       role: currentCred.role,
-      subRole: isProduction ? subRole : undefined,
+      subRole: (isProduction || isElectrical) ? subRole : undefined,
       unit: assignedUnit,
       shift: assignedShift,
       departmentId: dept.id,
@@ -250,6 +272,39 @@ export default function DepartmentLoginPage({ dept, initialSubRole = 'shift', on
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5" />
                     <span>General In-Charge</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Electrical Sub-Role Toggle (Shift Electrician vs Electrical Engineer) */}
+            {isElectrical && (
+              <div className="pt-2 flex justify-center">
+                <div className="inline-flex items-center p-1 bg-sky-50/70 dark:bg-[#07131b] rounded-2xl border border-sky-200 dark:border-sky-900">
+                  <button
+                    type="button"
+                    onClick={() => handleSubRoleChange('shift')}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                      subRole !== 'incharge'
+                        ? 'bg-gradient-to-r from-sky-400 to-[#0284c7] text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Shift Electrician</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSubRoleChange('incharge')}
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                      subRole === 'incharge'
+                        ? 'bg-gradient-to-r from-sky-400 to-[#0284c7] text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Electrical Engineer</span>
                   </button>
                 </div>
               </div>

@@ -70,12 +70,20 @@ export default function Header({
     hour12: true
   })}`;
 
+  const currentHour = currentDateTime.getHours();
+  const salutationText = currentHour >= 4 && currentHour < 12 
+    ? 'Good Morning' 
+    : currentHour >= 12 && currentHour < 17 
+    ? 'Good Afternoon' 
+    : 'Good Evening';
+
+  const isElectricalIncharge = activeTab === 'electrical' && (
+    activeUser?.role === 'electrical_incharge' || 
+    activeUser?.subRole === 'incharge'
+  );
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#07131b]/95 backdrop-blur-md border-b border-cyan-200/80 dark:border-cyan-950 transition-colors shadow-sm">
-      
-      {/* ======================================================== */}
-      {/* CASE 1: WELCOME SCREEN - SLIM PREMIUM CENTERED MASTER    */}
-      {/* ======================================================== */}
       {isHome ? (
         <div className="relative overflow-hidden bg-gradient-to-r from-sky-50/90 via-cyan-50/60 to-sky-50/90 dark:from-[#081822] dark:via-[#0a202d] dark:to-[#081822] transition-colors">
           
@@ -287,37 +295,50 @@ export default function Header({
             </div>
           </div>
 
-          {/* Navigation Ribbon */}
           {activeTab === 'electrical' ? (
-            /* ELECTRICAL EXCLUSIVE NAVIGATION: 3 CLEAN TABS (SHIFT REPORT, DAY REPORT, REPORTS) */
-            <div className="bg-sky-50/70 dark:bg-[#0c1f2b] border-t border-sky-200/70 dark:border-sky-950 px-2 sm:px-6 animate-fade-in shadow-xs">
-              <div className="max-w-7xl mx-auto flex items-center justify-between py-2 gap-2">
-                
-                {/* Left: Department Tag & Sub-Tabs */}
-                <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar">
-                  <span className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-sky-800 dark:text-sky-300 bg-sky-100/70 dark:bg-sky-950/50 rounded-xl border border-sky-300/40 mr-1 shrink-0">
-                    <Zap className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-                    <span>Electrical</span>
-                  </span>
+            /* Electrical Designer Sub-Header Directly Below Sandhya Header */
+            <div className="bg-white/95 dark:bg-[#07131b]/95 backdrop-blur-md border-t border-sky-200/70 dark:border-sky-950 px-3 sm:px-6 py-2.5 animate-fade-in shadow-inner">
+              <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
+                {/* Left: Welcome Wish with Live Time + Role Motivational Quote */}
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-extrabold text-xs sm:text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-sky-500" />
+                      {salutationText} • {formattedDateTime}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 border border-sky-300/40">
+                      {isElectricalIncharge ? 'Electrical Engineer' : 'Shift Electrician'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-sky-600 dark:text-sky-400 font-medium italic mt-0.5">
+                    “{isElectricalIncharge 
+                      ? '🛡️ Precision energy monitoring, zero power interruptions.' 
+                      : '⚡ Uninterrupted power driving non-stop plant productivity.'}”
+                  </p>
+                </div>
 
+                {/* Center / Right: The 3 Clean Section Tabs */}
+                <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar py-0.5">
                   <button
+                    type="button"
                     onClick={() => setElectricalSubTab && setElectricalSubTab('shift')}
                     className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all duration-200 cursor-pointer ${
                       electricalSubTab === 'shift'
-                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-sm shadow-sky-500/25 scale-[1.01]'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-100/70 dark:hover:bg-[#07131b] hover:text-slate-900 dark:hover:text-white'
+                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-xs scale-[1.01]'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-[#0c1f2b] border border-slate-200/60 dark:border-slate-800'
                     }`}
                   >
                     <Zap className={`w-3.5 h-3.5 ${electricalSubTab === 'shift' ? 'text-white' : 'text-sky-500'}`} />
-                    <span>Shift Report</span>
+                    <span>{isElectricalIncharge ? 'Shift Approvals' : 'Shift Report'}</span>
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => setElectricalSubTab && setElectricalSubTab('day')}
                     className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all duration-200 cursor-pointer ${
                       electricalSubTab === 'day'
-                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-sm shadow-sky-500/25 scale-[1.01]'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-100/70 dark:hover:bg-[#07131b] hover:text-slate-900 dark:hover:text-white'
+                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-xs scale-[1.01]'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-[#0c1f2b] border border-slate-200/60 dark:border-slate-800'
                     }`}
                   >
                     <Sun className={`w-3.5 h-3.5 ${electricalSubTab === 'day' ? 'text-white' : 'text-amber-500'}`} />
@@ -325,32 +346,22 @@ export default function Header({
                   </button>
 
                   <button
+                    type="button"
                     onClick={() => setElectricalSubTab && setElectricalSubTab('reports')}
                     className={`flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition-all duration-200 cursor-pointer ${
                       electricalSubTab === 'reports'
-                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-sm shadow-sky-500/25 scale-[1.01]'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-100/70 dark:hover:bg-[#07131b] hover:text-slate-900 dark:hover:text-white'
+                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-xs scale-[1.01]'
+                        : 'text-slate-600 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-[#0c1f2b] border border-slate-200/60 dark:border-slate-800'
                     }`}
                   >
                     <FileSpreadsheet className={`w-3.5 h-3.5 ${electricalSubTab === 'reports' ? 'text-white' : 'text-teal-500'}`} />
-                    <span>Reports</span>
+                    <span>Monthly Reports</span>
                   </button>
                 </div>
-
-                {/* Right: Quick Return to Welcome Screen / All Departments */}
-                <button
-                  onClick={onGoHome}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-sky-700 hover:bg-white dark:hover:bg-[#07131b] border border-transparent hover:border-sky-200 transition shrink-0 cursor-pointer"
-                  title="Switch Department / Back to Welcome Screen"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5 text-sky-500" />
-                  <span className="hidden sm:inline">All Departments</span>
-                </button>
-
               </div>
             </div>
           ) : (
-            /* STANDARD DEPARTMENT NAVIGATION RIBBON */
+            /* Standard Department Navigation Ribbon for Other Departments */
             <div className="bg-white dark:bg-[#0c1f2b] border-t border-cyan-100 dark:border-cyan-950 px-2 sm:px-6 animate-fade-in shadow-inner">
               <div className="max-w-7xl mx-auto flex items-center overflow-x-auto no-scrollbar py-2 gap-1.5 sm:gap-2">
                 {DEPARTMENTS.map((dept) => {

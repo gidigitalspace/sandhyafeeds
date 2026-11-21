@@ -22,7 +22,9 @@ const iconMap = {
 
 export default function HomePage({ onOpenLogin }) {
   const [showProductionModal, setShowProductionModal] = useState(false);
+  const [showElectricalModal, setShowElectricalModal] = useState(false);
   const productionDept = DEPARTMENTS.find(d => d.id === 'production');
+  const electricalDept = DEPARTMENTS.find(d => d.id === 'electrical');
 
   // Layout: 2 in Row 1, 2 in Row 2, and Plant Manager in Big across 2 rows
   const getGridPlacement = (id) => {
@@ -45,6 +47,8 @@ export default function HomePage({ onOpenLogin }) {
   const handleCardClick = (dept) => {
     if (dept.id === 'production') {
       setShowProductionModal(true);
+    } else if (dept.id === 'electrical') {
+      setShowElectricalModal(true);
     } else {
       onOpenLogin(dept);
     }
@@ -259,6 +263,106 @@ export default function HomePage({ onOpenLogin }) {
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                     Day production report, total batch counts, input/output yield % & mill loss/gain consolidation.
+                  </p>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* ELECTRICAL ROLE SELECTION POPUP: ELECTRICIAN vs ENGINEER */}
+      {/* ======================================================== */}
+      {showElectricalModal && electricalDept && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+          onClick={() => setShowElectricalModal(false)}
+        >
+          <div 
+            className="relative w-full max-w-md bg-white dark:bg-[#0c1f2b] border border-cyan-200/90 dark:border-[#193a4f] rounded-3xl p-6 sm:p-7 shadow-2xl text-slate-800 dark:text-slate-100 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Accent Line */}
+            <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-sky-400 to-[#0284c7]" />
+
+            {/* Close Button */}
+            <button
+              onClick={() => setShowElectricalModal(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-[#142e3f] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer transition"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Header */}
+            <div className="text-center space-y-1.5 mb-6 pt-1">
+              <span className="text-[11px] font-black uppercase tracking-wider text-[#0096c7] dark:text-[#38bdf8]">
+                Electrical Department
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                Select Operating Position
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Choose your position to open your role-specific portal login.
+              </p>
+            </div>
+
+            {/* 2 Position Choice Cards */}
+            <div className="space-y-3.5">
+              
+              {/* Option 1: Electrical Department Login (Shift Electrician) */}
+              <div
+                onClick={() => {
+                  setShowElectricalModal(false);
+                  onOpenLogin(electricalDept, 'shift');
+                }}
+                className="group flex items-start gap-4 p-4 rounded-2xl border border-sky-200/90 dark:border-[#193a4f] hover:border-sky-400 dark:hover:border-sky-500 bg-sky-50/40 hover:bg-sky-50/90 dark:bg-[#081822] dark:hover:bg-[#0c1f2b] transition-all cursor-pointer shadow-xs hover:shadow-md"
+              >
+                <div className="p-3 rounded-xl bg-gradient-to-br from-sky-400 to-[#0284c7] text-white shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                  <Zap className="w-6 h-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-black text-base text-slate-900 dark:text-white group-hover:text-[#0096c7] dark:group-hover:text-cyan-400">
+                      Electrical Department Login
+                    </h4>
+                    <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-[#0096c7] group-hover:translate-x-1 transition-all" />
+                  </div>
+                  <span className="inline-block text-[11px] font-extrabold text-sky-600 dark:text-sky-400 mb-0.5">
+                    Shift Electrician
+                  </span>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Enter shift MWH & MVAH readings, calculate live power factor, and submit shift report to In-Charge.
+                  </p>
+                </div>
+              </div>
+
+              {/* Option 2: Electrical In-Charge Login (Electrical Engineer) */}
+              <div
+                onClick={() => {
+                  setShowElectricalModal(false);
+                  onOpenLogin(electricalDept, 'incharge');
+                }}
+                className="group flex items-start gap-4 p-4 rounded-2xl border border-cyan-200/90 dark:border-[#193a4f] hover:border-cyan-400 dark:hover:border-cyan-500 bg-cyan-50/40 hover:bg-cyan-50/90 dark:bg-[#081822] dark:hover:bg-[#0c1f2b] transition-all cursor-pointer shadow-xs hover:shadow-md"
+              >
+                <div className="p-3 rounded-xl bg-gradient-to-br from-[#00b4d8] to-[#0077b6] text-white shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-black text-base text-slate-900 dark:text-white group-hover:text-[#0096c7] dark:group-hover:text-cyan-400">
+                      In-Charge Login
+                    </h4>
+                    <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-[#0096c7] group-hover:translate-x-1 transition-all" />
+                  </div>
+                  <span className="inline-block text-[11px] font-extrabold text-[#0096c7] dark:text-cyan-400 mb-0.5">
+                    Electrical Engineer
+                  </span>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Review shift approvals, recheck automated Day Report, toggle auto-approval & send report to Production & Plant Manager.
                   </p>
                 </div>
               </div>

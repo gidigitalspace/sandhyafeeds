@@ -39,6 +39,7 @@ import SubTabMaintenance from './SubTabMaintenance';
 import SubTabLeave from './SubTabLeave';
 import SignaturePad from '../../components/SignaturePad';
 import PosterModal from '../../components/PosterModal';
+import PowerPosterModal from '../../components/PowerPosterModal';
 
 export default function ShiftInCharge({ activeUser, onUpdateActiveUser }) {
   const [date, setDate] = useState(getTodayDateString());
@@ -80,6 +81,7 @@ export default function ShiftInCharge({ activeUser, onUpdateActiveUser }) {
   const [isSaved, setIsSaved] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPosterModal, setShowPosterModal] = useState(false);
+  const [showShiftPowerPoster, setShowShiftPowerPoster] = useState(false);
   const [savedReportData, setSavedReportData] = useState(null);
 
   // Electrical Integration State
@@ -270,16 +272,33 @@ export default function ShiftInCharge({ activeUser, onUpdateActiveUser }) {
           </div>
 
           <div className="flex items-center gap-2">
-            {elecData?.shifts?.[shift] ? (
+            {elecData?.shifts?.[shift]?.status === 'Approved' ? (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                Electrical Synced: {elecData.shifts[shift].submittedBy || 'Logged'}
+                Electrical Verified: Approved by Engineer
+              </span>
+            ) : elecData?.shifts?.[shift] ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                Shift Log Awaiting Engineer Approval
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-slate-500/20 text-slate-300 border border-slate-400/30">
+                <AlertTriangle className="w-3.5 h-3.5 text-slate-400" />
                 Awaiting Electrical Entry for {shift}
               </span>
+            )}
+
+            {elecData?.shifts?.[shift]?.status === 'Approved' && (
+              <button
+                type="button"
+                onClick={() => setShowShiftPowerPoster(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/40 text-xs font-bold transition cursor-pointer"
+                title="View Shift Power Report Poster"
+              >
+                <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                <span>View Shift Poster</span>
+              </button>
             )}
 
             <button
@@ -293,7 +312,7 @@ export default function ShiftInCharge({ activeUser, onUpdateActiveUser }) {
           </div>
         </div>
 
-        {elecData?.shifts?.[shift] ? (
+        {elecData?.shifts?.[shift]?.status === 'Approved' ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
             <div className="p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
               <span className="text-[10px] uppercase font-bold text-cyan-300 block mb-1">Shift Consumption</span>
@@ -329,21 +348,26 @@ export default function ShiftInCharge({ activeUser, onUpdateActiveUser }) {
             <div className="p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
               <span className="text-[10px] uppercase font-bold text-cyan-300 block mb-1">Power Cuts / Outage</span>
               <div className="text-lg font-black text-white">
-                {elecData.totalPowerCutMinutes > 0 ? `${elecData.totalPowerCutMinutes} Mins` : '0 Mins'}
+                {elecData.totalPowerCutMinutes || 0} <span className="text-xs font-normal text-slate-300">Mins</span>
               </div>
               <span className="text-[10px] text-slate-300">
-                {elecData.totalPowerCutMinutes > 0 ? `${elecData.powerCuts?.length || 1} interruption(s)` : 'Continuous Supply'}
+                Log: {elecData.shifts[shift].submittedBy || 'Shift Electrician'}
+              </span>
+            </div>
+          </div>
+        ) : elecData?.shifts?.[shift] ? (
+          <div className="mt-4 p-4 rounded-2xl bg-white/5 border border-amber-400/30 text-amber-200 text-xs flex items-center gap-3">
+            <Clock className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <span className="font-bold text-amber-300 block">Shift Readings Submitted • Awaiting Engineer Approval</span>
+              <span>
+                Shift {shift} power data was entered by {elecData.shifts[shift].submittedBy || 'Duty Electrician'}. Official consumption numbers and shift poster will unlock once verified and approved by the Electrical Engineer.
               </span>
             </div>
           </div>
         ) : (
-          <div className="mt-3 p-3 rounded-2xl bg-white/5 border border-white/10 text-xs text-cyan-100 flex items-center justify-between">
-            <span>
-              ℹ️ Electrical shift readings for <span className="font-bold text-white">{shift}</span> on <span className="font-bold text-white">{date}</span> have not been submitted yet.
-            </span>
-            <span className="text-[11px] text-cyan-300 italic hidden sm:inline">
-              Auto-syncs when Electrical Engineer sends Shift Power Report.
-            </span>
+          <div className="mt-4 p-4 rounded-2xl bg-white/5 border border-white/10 text-cyan-200/70 text-xs">
+            Awaiting Shift {shift} readings from Electrical Department.
           </div>
         )}
       </div>
@@ -462,12 +486,37 @@ export default function ShiftInCharge({ activeUser, onUpdateActiveUser }) {
         </div>
       )}
 
-      {/* Poster Modal */}
+      {/* Production Poster Modal */}
       {savedReportData && (
         <PosterModal
           isOpen={showPosterModal}
           onClose={() => setShowPosterModal(false)}
           report={savedReportData}
+        />
+      )}
+
+      {/* Electrical Shift Power Poster Modal (Real-time View Mode) */}
+      {showShiftPowerPoster && elecData?.shifts?.[shift] && (
+        <PowerPosterModal
+          isOpen={showShiftPowerPoster}
+          onClose={() => setShowShiftPowerPoster(false)}
+          mode="shift"
+          powerData={{
+            date,
+            shift,
+            startMwh: elecData.shifts[shift].startMwh,
+            endMwh: elecData.shifts[shift].endMwh,
+            diffMwh: elecData.shifts[shift].diffMwh,
+            consumedKwh: elecData.shifts[shift].consumedKwh,
+            startMvah: elecData.shifts[shift].startMvah,
+            endMvah: elecData.shifts[shift].endMvah,
+            diffMvah: elecData.shifts[shift].diffMvah,
+            consumedKvah: elecData.shifts[shift].consumedKvah,
+            powerFactor: elecData.shifts[shift].powerFactor,
+            electricalIncharge: elecData.shifts[shift].submittedBy || 'Shift Electrician',
+            outageMinutes: elecData.totalPowerCutMinutes || 0,
+            reportTime: elecData.shifts[shift].submittedAt
+          }}
         />
       )}
 

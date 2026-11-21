@@ -287,7 +287,11 @@ export default function GeneralInCharge() {
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
                     : 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
                 }`}>
-                  {elecData ? `Electrical Status: ${elecData.status || 'Submitted'}` : 'No Electrical Log'}
+                  {elecData?.status === 'Approved' 
+                    ? 'Electrical Status: Approved by Engineer' 
+                    : elecData 
+                    ? 'Electrical Status: Awaiting Engineer Approval' 
+                    : 'No Electrical Log'}
                 </span>
               </div>
               <p className="text-xs text-cyan-200/80">
@@ -297,7 +301,7 @@ export default function GeneralInCharge() {
           </div>
 
           <div className="flex items-center gap-2">
-            {elecData && (
+            {elecData?.status === 'Approved' && (
               <button
                 type="button"
                 onClick={() => setShowPowerPoster(true)}
@@ -318,7 +322,7 @@ export default function GeneralInCharge() {
           </div>
         </div>
 
-        {elecData ? (
+        {elecData?.status === 'Approved' ? (
           <div className="space-y-4 mt-4">
             {/* Top 4 KPI Metrics */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -409,6 +413,16 @@ export default function GeneralInCharge() {
                   <span className="font-bold">{elecData.solarDayGen?.toLocaleString() || 0} kWh</span>
                 </div>
               </div>
+            </div>
+          </div>
+        ) : elecData ? (
+          <div className="mt-4 p-4 rounded-2xl bg-white/5 border border-amber-400/30 text-amber-200 text-xs flex items-center gap-3">
+            <Clock className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <span className="font-bold text-amber-300 block">Day Power Report Submitted • Awaiting Engineer Approval</span>
+              <span>
+                24-Hour Day Power Report has been submitted by Electrical Dept ({elecData.electricalIncharge || 'Electrician'}). Official plant energy consumption and Specific Energy (SEC) will automatically calculate and display here once verified and approved by the Electrical Engineer.
+              </span>
             </div>
           </div>
         ) : (

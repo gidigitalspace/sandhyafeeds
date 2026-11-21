@@ -19,20 +19,29 @@ import {
   Check,
   Calendar,
   Layers,
-  Edit3
+  Edit3,
+  Lock,
+  Eye,
+  CheckCheck,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 import { getTodayDateString, getCurrentShift, COMPANY_NAME, DIVISION_NAME } from '../../constants/feedData';
 import { 
   getElectricalData, 
   saveElectricalData, 
   getPreviousShiftReadings, 
-  getMonthlyElectricalHistory 
+  getMonthlyElectricalHistory,
+  getElectricalSettings,
+  updateElectricalSettings,
+  approveElectricalShift,
+  approveElectricalDayReport
 } from '../../services/storage';
 import PowerPosterModal from '../../components/PowerPosterModal';
 
-const cleanOfficerName = (val) => {
-  if (!val) return 'Shift Electrician';
-  return val.replace(/Electrical Engineer/gi, 'Shift Electrician').replace(/Engineer/gi, 'Electrician');
+const cleanOfficerName = (val, defaultFallback = 'Shift Electrician') => {
+  if (!val) return defaultFallback;
+  return String(val).replace(/Electrical Engineer/gi, 'Shift Electrician').replace(/Engineer/gi, 'Electrician');
 };
 
 export default function ElectricalTab({ 
@@ -41,17 +50,16 @@ export default function ElectricalTab({
   subTab = 'shift',
   setSubTab
 }) {
-  // Screen sub-tab state (syncs with Header or internal)
+  const isEngineer = activeUser?.role === 'electrical_incharge' || activeUser?.subRole === 'incharge';
   const currentScreen = subTab || 'shift';
-  const handleSwitchScreen = (tabName) => {
-    if (setSubTab) {
-      setSubTab(tabName);
-    }
-  };
 
   const [date, setDate] = useState(getTodayDateString());
   const [selectedMonth, setSelectedMonth] = useState(getTodayDateString().slice(0, 7)); // e.g. "2026-11"
   const [selectedShift, setSelectedShift] = useState(getCurrentShift());
+
+  // Auto-Approve Toggle States for Engineer
+  const [autoApproveShift, setAutoApproveShift] = useState(() => getElectricalSettings().autoApproveShift);
+  const [autoApproveDayReport, setAutoApproveDayReport] = useState(() => getElectricalSettings().autoApproveDayReport);
 
   // ==========================================
   // 1. SHIFT REPORT STATE
@@ -60,7 +68,9 @@ export default function ElectricalTab({
   const [shiftEndMwh, setShiftEndMwh] = useState(464.200);
   const [shiftStartMvah, setShiftStartMvah] = useState(468.850);
   const [shiftEndMvah, setShiftEndMvah] = useState(472.580);
-  const [shiftOfficer, setShiftOfficer] = useState(() => cleanOfficerName(activeUser?.name));
+  const [shiftOfficer, setShiftOfficer] = useState(() => 
+    isEngineer ? 'Electrical Engineer' : cleanOfficerName(activeUser?.name, 'Shift Electrician')
+  );
   const [autoCarrySource, setAutoCarrySource] = useState('');
   const [shiftSubmitted, setShiftSubmitted] = useState(false);
   const [shiftCopied, setShiftCopied] = useState(false);
@@ -141,7 +151,9 @@ export default function ElectricalTab({
           setDayPublished(data.status === 'Submitted' || data.status === 'Approved');
         }
         if (data.approvedBy) setApprovedBy(data.approvedBy);
-        if (data.electricalIncharge) setShiftOfficer(cleanOfficerName(data.electricalIncharge));
+        if (data.electricalIncharge && !isEngineer) {
+          setShiftOfficer(cleanOfficerName(data.electricalIncharge, 'Shift Electrician'));
+        }
       } else {
         // Reset defaults
         setShiftsData({ 'Shift A': null, 'Shift B': null, 'Shift C': null });
@@ -153,7 +165,7 @@ export default function ElectricalTab({
       setSelectedMonth(date.slice(0, 7));
     }
     load();
-  }, [date]);
+  }, [date, isEngineer]);
 
   // Reload monthly data when selectedMonth changes
   useEffect(() => {
@@ -192,8 +204,14 @@ export default function ElectricalTab({
   const shiftConsumedKvah = Math.round(shiftDiffMvah * 1000);
   const shiftPowerFactor = shiftDiffMvah > 0 ? (shiftDiffMwh / shiftDiffMvah).toFixed(3) : '1.000';
 
+  // Check if current shift is locked/approved
+  const currentShiftRecord = shiftsData[selectedShift];
+  const isCurrentShiftApproved = currentShiftRecord?.status === 'Approved' || reportStatus === 'Approved';
+  const isDayReportLocked = reportStatus === 'Approved';
+
   // ==========================================
-  // DAY LEVEL CALCULATIONS
+  // AUTOMATIC DAY CALCULATIONS
+  // (Compiled automatically from Shifts A, B, C)
   // ==========================================
   const shiftA = shiftsData['Shift A'];
   const shiftB = shiftsData['Shift B'];
@@ -235,7 +253,7 @@ export default function ElectricalTab({
     : '0.0';
 
   // ==========================================
-  // ACTION: SUBMIT SHIFT REPORT
+  // ACTION: SUBMIT SHIFT REPORT (ELECTRICIAN)
   // ==========================================
   const handleSaveShiftPower = async () => {
     if (!shiftOfficer.trim()) {
@@ -243,6 +261,7 @@ export default function ElectricalTab({
       return;
     }
 
+    const isShiftAuto = autoApproveShift;
     const shiftPayload = {
       startMwh: parseFloat(shiftStartMwh) || 0,
       endMwh: parseFloat(shiftEndMwh) || 0,
@@ -254,7 +273,9 @@ export default function ElectricalTab({
       consumedKvah: shiftConsumedKvah,
       powerFactor: parseFloat(shiftPowerFactor),
       submittedBy: shiftOfficer,
-      submittedAt: new Date().toISOString()
+      submittedAt: new Date().toISOString(),
+      status: isShiftAuto ? 'Approved' : 'Pending',
+      approvedBy: isShiftAuto ? 'Auto-Approved (Engineer)' : ''
     };
 
     const updatedShifts = {
@@ -297,21 +318,66 @@ export default function ElectricalTab({
       totalDieselConsumedLiters: totalDieselConsumedDay,
       solarDayGen: parseFloat(solarDayGen) || 0,
       solarDayExport: parseFloat(solarDayExport) || 0,
-      electricalIncharge: shiftOfficer,
+      electricalIncharge: isEngineer ? 'Electrical Engineer' : shiftOfficer,
       reportTime: new Date().toISOString(),
-      status: reportStatus || 'Submitted'
+      status: reportStatus === 'Approved' ? 'Approved' : 'Submitted'
     };
 
     await saveElectricalData(fullPayload);
     setShiftSubmitted(true);
-    setNotification(`✓ ${selectedShift} Power Report submitted successfully! WhatsApp & Poster options are now ready.`);
+    setNotification(
+      isShiftAuto
+        ? `✓ ${selectedShift} Power Report auto-approved and synchronized with Production!`
+        : `✓ ${selectedShift} Power Report submitted! Sent to Electrical Engineer for approval.`
+    );
     setTimeout(() => setNotification(''), 5000);
   };
 
   // ==========================================
-  // ACTION: SUBMIT 24H DAY POWER REPORT
+  // ACTION: APPROVE INDIVIDUAL SHIFT (ENGINEER)
   // ==========================================
-  const handlePublishDayReport = async () => {
+  const handleApproveShift = async (shiftName) => {
+    await approveElectricalShift(date, shiftName, 'Electrical Engineer');
+    const updated = {
+      ...shiftsData,
+      [shiftName]: {
+        ...shiftsData[shiftName],
+        status: 'Approved',
+        approvedBy: 'Electrical Engineer'
+      }
+    };
+    setShiftsData(updated);
+    setNotification(`✓ ${shiftName} has been approved by Electrical Engineer.`);
+    setTimeout(() => setNotification(''), 4000);
+  };
+
+  // ==========================================
+  // ACTION: TOGGLE AUTO-APPROVE SHIFTS (ENGINEER)
+  // ==========================================
+  const handleToggleAutoApproveShift = async () => {
+    const newVal = !autoApproveShift;
+    setAutoApproveShift(newVal);
+    await updateElectricalSettings({ autoApproveShift: newVal });
+    setNotification(newVal ? '✓ Auto-Approve Shift Reports is now ENABLED' : 'Auto-Approve Shift Reports is now DISABLED');
+    setTimeout(() => setNotification(''), 4000);
+  };
+
+  // ==========================================
+  // ACTION: TOGGLE AUTO-APPROVE DAY REPORT (ENGINEER)
+  // ==========================================
+  const handleToggleAutoApproveDay = async () => {
+    const newVal = !autoApproveDayReport;
+    setAutoApproveDayReport(newVal);
+    await updateElectricalSettings({ autoApproveDayReport: newVal });
+    setNotification(newVal ? '✓ Auto-Approve Day Report is now ENABLED' : 'Auto-Approve Day Report is now DISABLED');
+    setTimeout(() => setNotification(''), 4000);
+  };
+
+  // ==========================================
+  // ACTION: SUBMIT DAY REPORT (ELECTRICIAN)
+  // ==========================================
+  const handleSubmitDayReportElectrician = async () => {
+    const isAuto = autoApproveDayReport;
     const fullPayload = {
       date,
       shifts: shiftsData,
@@ -334,13 +400,57 @@ export default function ElectricalTab({
       solarDayExport: parseFloat(solarDayExport) || 0,
       electricalIncharge: shiftOfficer,
       reportTime: new Date().toISOString(),
-      status: 'Submitted'
+      status: isAuto ? 'Approved' : 'Pending',
+      approvedBy: isAuto ? 'Auto-Approved (Engineer)' : '',
+      approvedAt: isAuto ? new Date().toISOString() : null
     };
 
     await saveElectricalData(fullPayload);
-    setReportStatus('Submitted');
+    setReportStatus(isAuto ? 'Approved' : 'Pending');
     setDayPublished(true);
-    setNotification('✓ 24-Hour Day Power Report submitted and synced! WhatsApp & Poster options are now ready.');
+    setNotification(
+      isAuto
+        ? '✓ Day Power Report auto-approved and synchronized with Production & Plant Manager!'
+        : '✓ Day Power Report submitted to Electrical Engineer for approval.'
+    );
+    setTimeout(() => setNotification(''), 5000);
+  };
+
+  // ==========================================
+  // ACTION: SEND DAY REPORT (ENGINEER)
+  // ==========================================
+  const handlePublishDayReport = async () => {
+    const fullPayload = {
+      date,
+      shifts: shiftsData,
+      dayTotalMwh: parseFloat(dayTotalMwh.toFixed(3)),
+      dayTotalKwh: dayTotalKwh,
+      dayTotalMvah: parseFloat(dayTotalMvah.toFixed(3)),
+      dayPowerFactor,
+      powerCuts,
+      totalPowerCutMinutes,
+      dg750: {
+        ...dg750,
+        closingLiters: dg750Closing
+      },
+      dg180: {
+        ...dg180,
+        closingLiters: dg180Closing
+      },
+      totalDieselConsumedLiters: totalDieselConsumedDay,
+      solarDayGen: parseFloat(solarDayGen) || 0,
+      solarDayExport: parseFloat(solarDayExport) || 0,
+      electricalIncharge: 'Electrical Engineer',
+      reportTime: new Date().toISOString(),
+      status: 'Approved',
+      approvedBy: 'Electrical Engineer',
+      approvedAt: new Date().toISOString()
+    };
+
+    await saveElectricalData(fullPayload);
+    setReportStatus('Approved');
+    setDayPublished(true);
+    setNotification('✓ 24-Hour Day Power Report approved & sent to Production and Plant Manager!');
     setTimeout(() => setNotification(''), 5000);
   };
 
@@ -410,7 +520,7 @@ export default function ElectricalTab({
     const text = `⚡ *SANDHYA MARINES LTD — 24H DAY POWER REPORT*
 🏭 *Division:* ${DIVISION_NAME}
 📅 *Date:* ${date}
-👷 *Shift Electrician:* ${shiftOfficer}
+👷 *Electrical Engineer:* Electrical In-Charge
 
 ⚡ *HT POWER CONSUMPTION (3 SHIFTS):*
 • Shift A: ${shiftA?.consumedKwh ? `${shiftA.consumedKwh.toLocaleString()} kWh (PF ${shiftA.powerFactor})` : 'Pending'}
@@ -495,426 +605,496 @@ export default function ElectricalTab({
   return (
     <div className="space-y-6 animate-fade-in pb-16">
       
-      {/* ======================================================== */}
-      {/* 1. CLEAN, PREMIUM LIGHT COMMAND BAR (NO THICK DARK COLORS) */}
-      {/* ======================================================== */}
-      <div className="bg-white dark:bg-[#0c1f2b] border border-sky-200/80 dark:border-sky-950 rounded-3xl p-5 shadow-xs transition-colors">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          
-          {/* Title & Department Identity */}
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200/60 dark:border-sky-900/60 shadow-xs">
-              <Zap className="w-6 h-6 text-sky-500" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
-                  Electrical Department
-                </h2>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-100/70 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-300/40">
-                  <Activity className="w-3 h-3 text-sky-500" />
-                  33kV Substation
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {COMPANY_NAME} • Shift Readings, HT Power Factor & DG Fuel Monitoring
-              </p>
-            </div>
-          </div>
-
-          {/* Quick Date & Electrician Inputs */}
-          <div className="flex flex-wrap items-center gap-2.5 text-xs">
-            <div className="bg-slate-50 dark:bg-[#07131b] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Log Date</span>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="bg-transparent text-slate-800 dark:text-slate-100 font-bold text-xs focus:outline-none cursor-pointer"
-              />
-            </div>
-
-            <div className="bg-slate-50 dark:bg-[#07131b] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 min-w-[170px]">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Shift Electrician</span>
-              <input
-                type="text"
-                value={shiftOfficer}
-                onChange={(e) => setShiftOfficer(e.target.value)}
-                placeholder="Shift Electrician Name"
-                className="bg-transparent text-slate-800 dark:text-slate-100 font-bold text-xs focus:outline-none w-full"
-              />
-            </div>
-          </div>
-
-        </div>
-
-        {/* Global Notification Banner */}
-        {notification && (
-          <div className="mt-4 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center gap-2 animate-fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{notification}</span>
-          </div>
-        )}
-
-        {/* In-Page Screen Navigation Switcher (Mobile Friendly & Crisp) */}
-        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-1.5 bg-slate-100/80 dark:bg-[#07131b] p-1 rounded-2xl border border-slate-200/60 dark:border-slate-800 w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={() => handleSwitchScreen('shift')}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentScreen === 'shift'
-                  ? 'bg-white dark:bg-[#0c1f2b] text-sky-600 dark:text-sky-400 shadow-xs border border-sky-200/60'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5 text-sky-500" />
-              <span>Shift Report</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleSwitchScreen('day')}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentScreen === 'day'
-                  ? 'bg-white dark:bg-[#0c1f2b] text-sky-600 dark:text-sky-400 shadow-xs border border-sky-200/60'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <Sun className="w-3.5 h-3.5 text-amber-500" />
-              <span>Day Report</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleSwitchScreen('reports')}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentScreen === 'reports'
-                  ? 'bg-white dark:bg-[#0c1f2b] text-sky-600 dark:text-sky-400 shadow-xs border border-sky-200/60'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-teal-500" />
-              <span>Reports</span>
-            </button>
-          </div>
-
-          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 hidden sm:block">
-            {currentScreen === 'shift' && 'Duty Shift HT Readings & Instant PF Check'}
-            {currentScreen === 'day' && '24-Hour 3-Shift Consolidation & DG Fuel'}
-            {currentScreen === 'reports' && 'Monthly Historical Sheets & Master CSV'}
-          </div>
-        </div>
-      </div>
-
-      {/* ======================================================== */}
-      {/* SCREEN 1: SHIFT REPORT ONLY                              */}
-      {/* ======================================================== */}
-      {currentScreen === 'shift' && (
-        <div className="bg-white dark:bg-[#0c1f2b] border border-sky-200/80 dark:border-sky-950 rounded-3xl p-6 shadow-xs space-y-6 animate-fade-in max-w-4xl mx-auto">
-          
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <span className="p-2.5 rounded-2xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200/50">
-                <Zap className="w-5 h-5 text-sky-500" />
-              </span>
-              <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Shift Power Report</span>
-                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
-                    {selectedShift}
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Duty Electrician enters Active Energy (MWH) & Apparent Energy (MVAH) at shift handover.
-                </p>
-              </div>
-            </div>
-
-            {shiftSubmitted && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Shift Logged & Synced
-              </span>
-            )}
-          </div>
-
-          {/* Shift Selector Buttons */}
-          <div className="grid grid-cols-3 gap-2.5">
-            {['Shift A', 'Shift B', 'Shift C'].map((sh) => {
-              const isSelected = selectedShift === sh;
-              const hasData = !!shiftsData[sh];
-              return (
-                <button
-                  key={sh}
-                  type="button"
-                  onClick={() => setSelectedShift(sh)}
-                  className={`py-3 px-3 rounded-2xl text-xs font-bold transition flex flex-col items-center justify-center gap-0.5 border cursor-pointer ${
-                    isSelected
-                      ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white border-transparent shadow-sm shadow-sky-500/20'
-                      : hasData
-                      ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                      : 'bg-slate-50 dark:bg-[#07131b] text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className="text-xs sm:text-sm font-extrabold">{sh}</span>
-                  <span className="text-[10px] opacity-80 font-normal">
-                    {sh === 'Shift A' ? '06:00 - 14:00' : sh === 'Shift B' ? '14:00 - 22:00' : '22:00 - 06:00'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Auto-Carry Forward Indicator */}
-          {autoCarrySource && !shiftSubmitted && (
-            <div className="p-3 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900 text-sky-800 dark:text-sky-300 text-xs flex items-center justify-between">
-              <span className="flex items-center gap-1.5 font-medium">
-                <Sparkles className="w-4 h-4 text-sky-500" />
-                Starting readings auto-carried from {autoCarrySource}.
-              </span>
-            </div>
-          )}
-
-          {/* 1. MWH (Active Energy) Card */}
-          <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-[#07131b] border border-slate-200/80 dark:border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black uppercase text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                <Zap className="w-4 h-4 text-sky-500" />
-                1. Active Energy Meter (MWH)
-              </span>
-              <span className="text-xs font-black text-sky-600 dark:text-sky-400 font-mono">
-                Diff: {shiftDiffMwh.toFixed(3)} MWH
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
-                  Starting MWH
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={shiftStartMwh}
-                  disabled={shiftSubmitted}
-                  onChange={(e) => setShiftStartMwh(e.target.value)}
-                  className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-sky-500 disabled:opacity-75"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
-                  Ending MWH
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={shiftEndMwh}
-                  disabled={shiftSubmitted}
-                  onChange={(e) => setShiftEndMwh(e.target.value)}
-                  className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-sky-500 disabled:opacity-75"
-                />
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-sky-50/70 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-900 flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-bold text-sky-700 dark:text-sky-300 block">
-                  Power Consumed
-                </span>
-                <div className="text-lg font-black text-sky-700 dark:text-sky-300 font-mono">
-                  {shiftConsumedKwh.toLocaleString()} <span className="text-xs font-sans font-bold">kWh</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 2. MVAH (Apparent Energy) Card */}
-          <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-[#07131b] border border-slate-200/80 dark:border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black uppercase text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-emerald-500" />
-                2. Apparent Energy Meter (MVAH)
-              </span>
-              <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                Diff: {shiftDiffMvah.toFixed(3)} MVAH
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
-                  Starting MVAH
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={shiftStartMvah}
-                  disabled={shiftSubmitted}
-                  onChange={(e) => setShiftStartMvah(e.target.value)}
-                  className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-sky-500 disabled:opacity-75"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
-                  Ending MVAH
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={shiftEndMvah}
-                  disabled={shiftSubmitted}
-                  onChange={(e) => setShiftEndMvah(e.target.value)}
-                  className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-sky-500 disabled:opacity-75"
-                />
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-900 flex flex-col justify-center">
-                <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-300 block">
-                  Apparent Energy
-                </span>
-                <div className="text-lg font-black text-emerald-700 dark:text-emerald-300 font-mono">
-                  {shiftConsumedKvah.toLocaleString()} <span className="text-xs font-sans font-bold">kVAh</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 3. Calculated Power Factor Spotlight Box */}
-          <div className={`p-4 rounded-2xl border flex items-center justify-between flex-wrap gap-3 ${
-            parseFloat(shiftPowerFactor) >= 0.980
-              ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800'
-              : 'bg-amber-50/60 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800'
-          }`}>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
-                Calculated Shift Power Factor (PF)
-              </span>
-              <span className="text-3xl font-black font-mono text-slate-900 dark:text-white">
-                {shiftPowerFactor}
-              </span>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                Formula: Shift MWH ÷ Shift MVAH ({shiftDiffMwh.toFixed(3)} ÷ {shiftDiffMvah.toFixed(3)})
-              </span>
-            </div>
-
-            <div className="text-right">
-              <span className={`px-3 py-1.5 rounded-full text-xs font-bold inline-block ${
-                parseFloat(shiftPowerFactor) >= 0.980
-                  ? 'bg-emerald-500 text-white shadow-xs'
-                  : 'bg-amber-500 text-white shadow-xs'
-              }`}>
-                {parseFloat(shiftPowerFactor) >= 0.980 ? '★ Optimal PF (> 0.98)' : '⚠️ Low PF Alert'}
-              </span>
-              <span className="text-[10px] text-slate-400 block mt-1">
-                APCPDCL Grid Rebate Compliant
-              </span>
-            </div>
-          </div>
-
-          {/* Mini Shift Status Overview Strip */}
-          <div className="pt-2">
-            <span className="text-[10px] uppercase font-extrabold text-slate-400 block mb-2">
-              Today's 3-Shift Log Status
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              {['Shift A', 'Shift B', 'Shift C'].map((sh) => {
-                const s = shiftsData[sh];
-                return (
-                  <div key={sh} className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#07131b] border border-slate-200/80 dark:border-slate-800">
-                    <div className="flex items-center justify-between text-[11px] font-bold">
-                      <span className="text-slate-600 dark:text-slate-300">{sh}</span>
-                      <span className={s ? 'text-emerald-500' : 'text-amber-500'}>
-                        {s ? '✓' : 'Pending'}
-                      </span>
-                    </div>
-                    <div className="text-xs font-black font-mono text-slate-800 dark:text-slate-200 mt-1">
-                      {s?.consumedKwh ? `${s.consumedKwh.toLocaleString()} kWh` : '--'}
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">
-                      PF: {s?.powerFactor || '--'}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ======================================================== */}
-          {/* SUBMIT FIRST WORKFLOW FOR SHIFT REPORT                   */}
-          {/* ======================================================== */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-            {!shiftSubmitted ? (
-              /* BEFORE SUBMIT: ONLY THE SUBMIT BUTTON IS VISIBLE */
-              <button
-                type="button"
-                onClick={handleSaveShiftPower}
-                className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white font-extrabold text-sm rounded-2xl shadow-sm shadow-sky-500/25 active:scale-98 transition cursor-pointer"
-              >
-                <Send className="w-4 h-4" />
-                <span>Submit {selectedShift} Report</span>
-              </button>
-            ) : (
-              /* AFTER SUBMIT: SUCCESS BADGE + WHATSAPP + POSTER + EDIT BUTTON */
-              <div className="space-y-3">
-                <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <div>
-                      <div className="text-xs font-black text-emerald-900 dark:text-emerald-200">
-                        {selectedShift} Report Submitted & Logged
-                      </div>
-                      <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                        Consumption: {shiftConsumedKwh.toLocaleString()} kWh • PF {shiftPowerFactor}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShiftSubmitted(false)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-sky-600 hover:bg-white dark:hover:bg-[#0c1f2b] border border-slate-200 dark:border-slate-800 transition cursor-pointer"
-                    title="Unlock and edit readings"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>Edit</span>
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-3 flex-col sm:flex-row">
-                  <button
-                    type="button"
-                    onClick={handleShareShiftWhatsApp}
-                    className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95 cursor-pointer"
-                    title="Share Shift Report to WhatsApp"
-                  >
-                    {shiftCopied ? <Check className="w-4 h-4 text-white" /> : <MessageSquare className="w-4 h-4 text-white" />}
-                    <span>{shiftCopied ? 'Copied & Opened!' : 'Share to WhatsApp'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPosterMode('shift');
-                      setIsPosterOpen(true);
-                    }}
-                    className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white shadow-sm shadow-sky-500/20 transition active:scale-95 cursor-pointer"
-                    title="Create Graphic Shift Poster Locally & Download"
-                  >
-                    <Share2 className="w-4 h-4" />
-                    <span>Create Shift Report Poster</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
+      {/* Global Notification Banner */}
+      {notification && (
+        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center gap-2 animate-fade-in shadow-xs">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{notification}</span>
         </div>
       )}
 
       {/* ======================================================== */}
-      {/* SCREEN 2: DAY REPORT ONLY                                */}
+      {/* 1. SCREEN: SHIFT REPORT (ELECTRICIAN) or SHIFT APPROVALS (ENGINEER) */}
+      {/* ======================================================== */}
+      {currentScreen === 'shift' && (
+        isEngineer ? (
+          /* ==================================================== */
+          /* ENGINEER VIEW: [ ⚡ SHIFT APPROVALS ]                */
+          /* ==================================================== */
+          <div className="bg-white dark:bg-[#0c1f2b] border border-sky-200/80 dark:border-sky-950 rounded-3xl p-6 shadow-xs space-y-6 animate-fade-in max-w-5xl mx-auto">
+            
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2.5 rounded-2xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200/50">
+                  <Zap className="w-5 h-5 text-sky-500" />
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Shift Approvals</span>
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                      Electrical In-Charge
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Review incoming shift submissions from duty electricians. Recheck Active/Apparent energy & sign off.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleToggleAutoApproveShift}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                    autoApproveShift
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300'
+                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                  }`}
+                  title="Toggle auto-approval for incoming shift submissions"
+                >
+                  {autoApproveShift ? (
+                    <ToggleRight className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <ToggleLeft className="w-4 h-4 text-slate-400" />
+                  )}
+                  <span>Auto-Approve: {autoApproveShift ? 'ON' : 'OFF'}</span>
+                </button>
+
+                <div className="bg-slate-50 dark:bg-[#07131b] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Log Date</span>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="bg-transparent text-slate-800 dark:text-slate-100 font-bold text-xs focus:outline-none cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 3 Shifts Approval Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[
+                { name: 'Shift A', time: '06:00 – 14:00' },
+                { name: 'Shift B', time: '14:00 – 22:00' },
+                { name: 'Shift C', time: '22:00 – 06:00' }
+              ].map(({ name, time }) => {
+                const s = shiftsData[name];
+                const isApproved = s?.status === 'Approved';
+
+                return (
+                  <div 
+                    key={name}
+                    className={`p-4 rounded-2xl border transition-all ${
+                      isApproved
+                        ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/80'
+                        : s
+                        ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/80'
+                        : 'bg-slate-50/60 dark:bg-[#07131b]/60 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 dark:text-white">{name}</h4>
+                        <span className="text-[10px] text-slate-400 font-medium">{time}</span>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        isApproved
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                          : s
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                          : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                      }`}>
+                        {isApproved ? '✓ Approved' : s ? '⏳ Pending Approval' : 'Awaiting Log'}
+                      </span>
+                    </div>
+
+                    {s ? (
+                      <div className="space-y-3 mt-3 text-xs">
+                        <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
+                          <div className="flex justify-between text-slate-500">
+                            <span>Electrician:</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">{s.submittedBy || 'Shift Electrician'}</span>
+                          </div>
+                          <div className="flex justify-between text-slate-500">
+                            <span>Active MWH:</span>
+                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{s.startMwh} ➔ {s.endMwh}</span>
+                          </div>
+                          <div className="flex justify-between text-slate-500">
+                            <span>Net Units:</span>
+                            <span className="font-mono font-black text-sky-600">{s.consumedKwh?.toLocaleString()} kWh</span>
+                          </div>
+                          <div className="flex justify-between text-slate-500">
+                            <span>Power Factor:</span>
+                            <span className={`font-mono font-black ${parseFloat(s.powerFactor) >= 0.98 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                              {s.powerFactor}
+                            </span>
+                          </div>
+                        </div>
+
+                        {!isApproved ? (
+                          <button
+                            type="button"
+                            onClick={() => handleApproveShift(name)}
+                            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition active:scale-95 cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Approve {name}</span>
+                          </button>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1.5 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Approved by Engineer</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        Shift Electrician has not yet submitted readings for {name}.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+          </div>
+        ) : (
+          /* ==================================================== */
+          /* ELECTRICIAN VIEW: [ ⚡ SHIFT REPORT ]                */
+          /* ==================================================== */
+          <div className="bg-white dark:bg-[#0c1f2b] border border-sky-200/80 dark:border-sky-950 rounded-3xl p-6 shadow-xs space-y-6 animate-fade-in max-w-4xl mx-auto">
+            
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2.5 rounded-2xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border border-sky-200/50">
+                  <Zap className="w-5 h-5 text-sky-500" />
+                </span>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Shift Power Report</span>
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                      {selectedShift}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Duty Electrician enters Active Energy (MWH) & Apparent Energy (MVAH) at shift handover.
+                  </p>
+                </div>
+              </div>
+
+              {isCurrentShiftApproved ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                  Approved by Engineer (Locked)
+                </span>
+              ) : shiftSubmitted ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  Submitted • Pending Approval
+                </span>
+              ) : null}
+            </div>
+
+            {/* Shift Selector Buttons with Timings and Soft Colors (Green = Completed, Red = Pending) */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                Select Shift (Green = Completed, Red = Pending)
+              </span>
+              <div className="grid grid-cols-3 gap-2.5">
+                {[
+                  { id: 'Shift A', time: '06:00 – 14:00' },
+                  { id: 'Shift B', time: '14:00 – 22:00' },
+                  { id: 'Shift C', time: '22:00 – 06:00' }
+                ].map(({ id, time }) => {
+                  const isSelected = selectedShift === id;
+                  const isDone = !!shiftsData[id];
+
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setSelectedShift(id)}
+                      className={`py-3 px-3 rounded-2xl text-xs font-bold transition flex flex-col items-center justify-center gap-0.5 border cursor-pointer ${
+                        isSelected ? 'ring-2 ring-sky-500 ring-offset-2 dark:ring-offset-[#0c1f2b]' : ''
+                      } ${
+                        isDone
+                          ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                          : 'bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs sm:text-sm font-extrabold">{id}</span>
+                        <span className={`w-2 h-2 rounded-full ${isDone ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                      </div>
+                      <span className="text-[10px] opacity-80 font-normal">{time}</span>
+                      <span className="text-[9px] font-extrabold mt-0.5">
+                        {isDone ? '✓ Completed' : '⏳ Pending'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Auto-Carry Forward Indicator */}
+            {autoCarrySource && !shiftSubmitted && !isCurrentShiftApproved && (
+              <div className="p-3 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900 text-sky-800 dark:text-sky-300 text-xs flex items-center justify-between">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Sparkles className="w-4 h-4 text-sky-500" />
+                  Starting readings auto-carried from {autoCarrySource}.
+                </span>
+              </div>
+            )}
+
+            {/* 1. MWH (Active Energy) Card */}
+            <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-[#07131b] border border-slate-200/80 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-sky-500" />
+                  1. Active Energy Meter (MWH)
+                </span>
+                <span className="text-xs font-black text-sky-600 dark:text-sky-400 font-mono">
+                  Diff: {shiftDiffMwh.toFixed(3)} MWH
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                    Starting MWH
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={shiftStartMwh}
+                    disabled={isCurrentShiftApproved || shiftSubmitted}
+                    onChange={(e) => setShiftStartMwh(e.target.value)}
+                    className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-sky-500 disabled:opacity-75 cursor-text disabled:cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                    Ending MWH
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={shiftEndMwh}
+                    disabled={isCurrentShiftApproved || shiftSubmitted}
+                    onChange={(e) => setShiftEndMwh(e.target.value)}
+                    className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-sky-500 disabled:opacity-75 cursor-text disabled:cursor-not-allowed"
+                  />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-sky-50/70 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-900 flex flex-col justify-center">
+                  <span className="text-[10px] uppercase font-bold text-sky-700 dark:text-sky-300 block">
+                    Power Consumed
+                  </span>
+                  <div className="text-lg font-black text-sky-700 dark:text-sky-300 font-mono">
+                    {shiftConsumedKwh.toLocaleString()} <span className="text-xs font-sans font-bold">kWh</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. MVAH (Apparent Energy) Card */}
+            <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-[#07131b] border border-slate-200/80 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-emerald-500" />
+                  2. Apparent Energy Meter (MVAH)
+                </span>
+                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                  Diff: {shiftDiffMvah.toFixed(3)} MVAH
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                    Starting MVAH
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={shiftStartMvah}
+                    disabled={isCurrentShiftApproved || shiftSubmitted}
+                    onChange={(e) => setShiftStartMvah(e.target.value)}
+                    className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-sky-500 disabled:opacity-75 cursor-text disabled:cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                    Ending MVAH
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={shiftEndMvah}
+                    disabled={isCurrentShiftApproved || shiftSubmitted}
+                    onChange={(e) => setShiftEndMvah(e.target.value)}
+                    className="w-full text-xs font-mono font-bold p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-sky-500 disabled:opacity-75 cursor-text disabled:cursor-not-allowed"
+                  />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-900 flex flex-col justify-center">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-300 block">
+                    Apparent Energy
+                  </span>
+                  <div className="text-lg font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                    {shiftConsumedKvah.toLocaleString()} <span className="text-xs font-sans font-bold">kVAh</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Calculated Power Factor Spotlight Box */}
+            <div className={`p-4 rounded-2xl border flex items-center justify-between flex-wrap gap-3 ${
+              parseFloat(shiftPowerFactor) >= 0.980
+                ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800'
+                : 'bg-amber-50/60 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800'
+            }`}>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
+                  Calculated Shift Power Factor (PF)
+                </span>
+                <span className="text-3xl font-black font-mono text-slate-900 dark:text-white">
+                  {shiftPowerFactor}
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                  Formula: Shift MWH ÷ Shift MVAH ({shiftDiffMwh.toFixed(3)} ÷ {shiftDiffMvah.toFixed(3)})
+                </span>
+              </div>
+
+              <div className="text-right">
+                <span className={`px-3 py-1.5 rounded-full text-xs font-bold inline-block ${
+                  parseFloat(shiftPowerFactor) >= 0.980
+                    ? 'bg-emerald-500 text-white shadow-xs'
+                    : 'bg-amber-500 text-white shadow-xs'
+                }`}>
+                  {parseFloat(shiftPowerFactor) >= 0.980 ? '★ Optimal PF (> 0.98)' : '⚠️ Low PF Alert'}
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-1">
+                  APCPDCL Grid Rebate Compliant
+                </span>
+              </div>
+            </div>
+
+            {/* Shift Actions: Submit / Approved Status */}
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+              {isCurrentShiftApproved ? (
+                /* APPROVED BY ENGINEER: STRICTLY LOCKED */
+                <div className="space-y-3">
+                  <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
+                      <div>
+                        <div className="text-xs font-black text-emerald-900 dark:text-emerald-200">
+                          {selectedShift} Approved by Electrical Engineer
+                        </div>
+                        <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                          This shift report is locked and cannot be edited.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 flex-col sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleShareShiftWhatsApp}
+                      className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95 cursor-pointer"
+                    >
+                      {shiftCopied ? <Check className="w-4 h-4 text-white" /> : <MessageSquare className="w-4 h-4 text-white" />}
+                      <span>{shiftCopied ? 'Copied & Opened!' : 'Share to WhatsApp'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPosterMode('shift');
+                        setIsPosterOpen(true);
+                      }}
+                      className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white shadow-sm shadow-sky-500/20 transition active:scale-95 cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Create Shift Report Poster</span>
+                    </button>
+                  </div>
+                </div>
+              ) : !shiftSubmitted ? (
+                /* BEFORE SUBMIT: ONLY THE SUBMIT BUTTON IS VISIBLE */
+                <button
+                  type="button"
+                  onClick={handleSaveShiftPower}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white font-extrabold text-sm rounded-2xl shadow-sm shadow-sky-500/25 active:scale-98 transition cursor-pointer"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Submit {selectedShift} Report to Engineer</span>
+                </button>
+              ) : (
+                /* AFTER SUBMIT: SUCCESS BADGE + WHATSAPP + POSTER + EDIT */
+                <div className="space-y-3">
+                  <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+                      <div>
+                        <div className="text-xs font-black text-amber-900 dark:text-amber-200">
+                          {selectedShift} Submitted • Awaiting Engineer Approval
+                        </div>
+                        <div className="text-[11px] text-amber-700 dark:text-amber-400">
+                          Consumption: {shiftConsumedKwh.toLocaleString()} kWh • PF {shiftPowerFactor}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShiftSubmitted(false)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-sky-600 hover:bg-white dark:hover:bg-[#0c1f2b] border border-slate-200 dark:border-slate-800 transition cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-3 flex-col sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleShareShiftWhatsApp}
+                      className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95 cursor-pointer"
+                    >
+                      {shiftCopied ? <Check className="w-4 h-4 text-white" /> : <MessageSquare className="w-4 h-4 text-white" />}
+                      <span>{shiftCopied ? 'Copied & Opened!' : 'Share to WhatsApp'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPosterMode('shift');
+                        setIsPosterOpen(true);
+                      }}
+                      className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white shadow-sm shadow-sky-500/20 transition active:scale-95 cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Create Shift Report Poster</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+          </div>
+        )
+      )}
+
+      {/* ======================================================== */}
+      {/* 2. SCREEN: DAY REPORT                                    */}
       {/* ======================================================== */}
       {currentScreen === 'day' && (
         <div className="bg-white dark:bg-[#0c1f2b] border border-sky-200/80 dark:border-sky-950 rounded-3xl p-6 shadow-xs space-y-6 animate-fade-in max-w-5xl mx-auto">
@@ -927,24 +1107,49 @@ export default function ElectricalTab({
               </span>
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>24-Hour Day Power Report</span>
+                  <span>Day Report</span>
                   <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                    Day Review
+                    24-Hour Review
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Consolidates Shifts A, B & C, 24-hour total consumption, DG sets, power cuts and rooftop solar.
+                  {isEngineer 
+                    ? 'Automatically compiled from Shift A, B & C. Recheck DG fuel, outages & send to Production & Plant Manager.' 
+                    : '24-Hour Mill Power consolidation & generator stock status (View Mode).'}
                 </p>
               </div>
             </div>
 
-            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-              reportStatus === 'Approved'
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200'
-                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200'
-            }`}>
-              {reportStatus === 'Approved' ? 'Approved by Plant Manager' : 'Ready for Submission'}
-            </span>
+            {/* Engineer: Auto-Approve Toggle Switch */}
+            {isEngineer ? (
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleToggleAutoApprove}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-2xl text-xs font-bold border transition cursor-pointer ${
+                    autoApproveDayReport
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300'
+                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                  }`}
+                  title="Toggle auto-approval for incoming day reports"
+                >
+                  {autoApproveDayReport ? (
+                    <ToggleRight className="w-5 h-5 text-emerald-600" />
+                  ) : (
+                    <ToggleLeft className="w-5 h-5 text-slate-400" />
+                  )}
+                  <span>Auto-Approve: {autoApproveDayReport ? 'ON' : 'OFF'}</span>
+                </button>
+              </div>
+            ) : (
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                reportStatus === 'Approved'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200'
+                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200'
+              }`}>
+                {reportStatus === 'Approved' ? '✓ Verified by Engineer' : '⏳ Pending Engineer Sign-Off'}
+              </span>
+            )}
           </div>
 
           {/* 3 Shifts Mini Strip */}
@@ -955,8 +1160,8 @@ export default function ElectricalTab({
                 <div key={sh} className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-[#07131b] border border-slate-200/80 dark:border-slate-800">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
                     <span>{sh}</span>
-                    <span className={s ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}>
-                      {s ? '✓ Logged' : 'Pending'}
+                    <span className={s?.status === 'Approved' ? 'text-emerald-600 dark:text-emerald-400' : s ? 'text-amber-500' : 'text-slate-400'}>
+                      {s?.status === 'Approved' ? '✓ Approved' : s ? '⏳ Submitted' : 'Pending'}
                     </span>
                   </div>
                   <div className="text-lg font-black text-slate-900 dark:text-white font-mono mt-1">
@@ -1027,27 +1232,30 @@ export default function ElectricalTab({
                     <input
                       type="number"
                       step="0.1"
+                      disabled={isDayReportLocked}
                       value={dg750.durationHours}
                       onChange={(e) => setDg750({ ...dg750, durationHours: parseFloat(e.target.value) || 0 })}
-                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950"
+                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950 disabled:opacity-80"
                     />
                   </div>
                   <div>
                     <span className="text-slate-400 block">Filling (L)</span>
                     <input
                       type="number"
+                      disabled={isDayReportLocked}
                       value={dg750.fillingLiters}
                       onChange={(e) => setDg750({ ...dg750, fillingLiters: parseFloat(e.target.value) || 0 })}
-                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950"
+                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950 disabled:opacity-80"
                     />
                   </div>
                   <div>
                     <span className="text-slate-400 block">Consumed (L)</span>
                     <input
                       type="number"
+                      disabled={isDayReportLocked}
                       value={dg750.consumptionLiters}
                       onChange={(e) => setDg750({ ...dg750, consumptionLiters: parseFloat(e.target.value) || 0 })}
-                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950"
+                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950 disabled:opacity-80"
                     />
                   </div>
                   <div>
@@ -1066,27 +1274,30 @@ export default function ElectricalTab({
                     <input
                       type="number"
                       step="0.1"
+                      disabled={isDayReportLocked}
                       value={dg180.durationHours}
                       onChange={(e) => setDg180({ ...dg180, durationHours: parseFloat(e.target.value) || 0 })}
-                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950"
+                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950 disabled:opacity-80"
                     />
                   </div>
                   <div>
                     <span className="text-slate-400 block">Filling (L)</span>
                     <input
                       type="number"
+                      disabled={isDayReportLocked}
                       value={dg180.fillingLiters}
                       onChange={(e) => setDg180({ ...dg180, fillingLiters: parseFloat(e.target.value) || 0 })}
-                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950"
+                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950 disabled:opacity-80"
                     />
                   </div>
                   <div>
                     <span className="text-slate-400 block">Consumed (L)</span>
                     <input
                       type="number"
+                      disabled={isDayReportLocked}
                       value={dg180.consumptionLiters}
                       onChange={(e) => setDg180({ ...dg180, consumptionLiters: parseFloat(e.target.value) || 0 })}
-                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950"
+                      className="w-full p-1.5 font-mono font-bold border rounded-lg bg-slate-50 dark:bg-slate-950 disabled:opacity-80"
                     />
                   </div>
                   <div>
@@ -1111,18 +1322,20 @@ export default function ElectricalTab({
                   <label className="text-[10px] text-slate-500 block mb-1">Day Generation (kWh)</label>
                   <input
                     type="number"
+                    disabled={isDayReportLocked}
                     value={solarDayGen}
                     onChange={(e) => setSolarDayGen(e.target.value)}
-                    className="w-full text-xs font-mono font-bold p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    className="w-full text-xs font-mono font-bold p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-80"
                   />
                 </div>
                 <div>
                   <label className="text-[10px] text-slate-500 block mb-1">Export to Grid (kWh)</label>
                   <input
                     type="number"
+                    disabled={isDayReportLocked}
                     value={solarDayExport}
                     onChange={(e) => setSolarDayExport(e.target.value)}
-                    className="w-full text-xs font-mono font-bold p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    className="w-full text-xs font-mono font-bold p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-80"
                   />
                 </div>
               </div>
@@ -1139,126 +1352,224 @@ export default function ElectricalTab({
                   Power Cut Outages ({totalPowerCutMinutes} Mins)
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="time"
-                  value={newCutStart}
-                  onChange={(e) => setNewCutStart(e.target.value)}
-                  className="p-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                  placeholder="Start"
-                />
-                <input
-                  type="time"
-                  value={newCutEnd}
-                  onChange={(e) => setNewCutEnd(e.target.value)}
-                  className="p-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                  placeholder="End"
-                />
-                <input
-                  type="text"
-                  value={newCutReason}
-                  onChange={(e) => setNewCutReason(e.target.value)}
-                  className="p-1.5 text-xs flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                  placeholder="Outage Reason"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddPowerCut}
-                  className="p-1.5 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shrink-0"
-                >
-                  + Add
-                </button>
-              </div>
+              {!isDayReportLocked && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="time"
+                    value={newCutStart}
+                    onChange={(e) => setNewCutStart(e.target.value)}
+                    className="p-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    placeholder="Start"
+                  />
+                  <input
+                    type="time"
+                    value={newCutEnd}
+                    onChange={(e) => setNewCutEnd(e.target.value)}
+                    className="p-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    placeholder="End"
+                  />
+                  <input
+                    type="text"
+                    value={newCutReason}
+                    onChange={(e) => setNewCutReason(e.target.value)}
+                    className="p-1.5 text-xs flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    placeholder="Outage Reason"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddPowerCut}
+                    className="p-1.5 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shrink-0 cursor-pointer"
+                  >
+                    + Add
+                  </button>
+                </div>
+              )}
 
-              {powerCuts.length > 0 && (
+              {powerCuts.length > 0 ? (
                 <div className="space-y-1 mt-2 max-h-24 overflow-y-auto text-xs">
                   {powerCuts.map((cut) => (
                     <div key={cut.id} className="flex items-center justify-between bg-white dark:bg-slate-900 p-1.5 rounded-lg border border-rose-100 text-[11px]">
                       <span>{cut.startTime} - {cut.endTime} ({cut.durationMins}m) — {cut.reason}</span>
-                      <button onClick={() => handleDeletePowerCut(cut.id)} className="text-rose-500 hover:text-rose-700">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!isDayReportLocked && (
+                        <button onClick={() => handleDeletePowerCut(cut.id)} className="text-rose-500 hover:text-rose-700 cursor-pointer">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
+              ) : (
+                <div className="text-xs text-slate-400 py-2">Continuous High Tension supply. Zero interruptions recorded.</div>
               )}
             </div>
           </div>
 
-          {/* ======================================================== */}
-          {/* SUBMIT FIRST WORKFLOW FOR DAY REPORT                     */}
-          {/* ======================================================== */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-            {!dayPublished ? (
-              /* BEFORE SUBMIT: ONLY THE SUBMIT BUTTON IS VISIBLE */
-              <button
-                type="button"
-                onClick={handlePublishDayReport}
-                className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white font-extrabold text-sm rounded-2xl shadow-sm shadow-sky-500/25 active:scale-98 transition cursor-pointer"
-              >
-                <Send className="w-4 h-4" />
-                <span>Submit 24H Day Power Report</span>
-              </button>
-            ) : (
-              /* AFTER SUBMIT: SUCCESS BADGE + WHATSAPP + POSTER + EDIT BUTTON */
-              <div className="space-y-3">
-                <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <div>
-                      <div className="text-xs font-black text-emerald-900 dark:text-emerald-200">
-                        24-Hour Day Power Report Submitted & Logged
-                      </div>
-                      <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                        Total Power: {dayTotalKwh.toLocaleString()} kWh • Day PF {dayPowerFactor} • Diesel: {totalDieselConsumedDay} L
+          {/* Engineer Day Actions: Send Day Report or Share/Poster */}
+          {isEngineer && (
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+              {reportStatus !== 'Approved' ? (
+                <button
+                  type="button"
+                  onClick={handlePublishDayReport}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-extrabold text-sm rounded-2xl shadow-sm active:scale-98 transition cursor-pointer"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Recheck & Send Day Report to Production & Plant Manager</span>
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                      <div>
+                        <div className="text-xs font-black text-emerald-900 dark:text-emerald-200">
+                          24-Hour Day Report Verified & Sent to Production & Plant Manager
+                        </div>
+                        <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                          Day Power: {dayTotalKwh.toLocaleString()} kWh • Day PF {dayPowerFactor} • Diesel: {totalDieselConsumedDay} L
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setDayPublished(false)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-sky-600 hover:bg-white dark:hover:bg-[#0c1f2b] border border-slate-200 dark:border-slate-800 transition cursor-pointer"
-                    title="Unlock and edit day report"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>Edit</span>
-                  </button>
-                </div>
+                  <div className="flex items-center gap-3 flex-col sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleShareDayWhatsApp}
+                      className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95 cursor-pointer"
+                    >
+                      {dayCopied ? <Check className="w-4 h-4 text-white" /> : <MessageSquare className="w-4 h-4 text-white" />}
+                      <span>{dayCopied ? 'Copied & Opened!' : 'Share Day Report to WhatsApp'}</span>
+                    </button>
 
-                <div className="flex items-center gap-3 flex-col sm:flex-row">
-                  <button
-                    type="button"
-                    onClick={handleShareDayWhatsApp}
-                    className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95 cursor-pointer"
-                    title="Share 24H Day Report to WhatsApp"
-                  >
-                    {dayCopied ? <Check className="w-4 h-4 text-white" /> : <MessageSquare className="w-4 h-4 text-white" />}
-                    <span>{dayCopied ? 'Copied & Opened!' : 'Share Day Report to WhatsApp'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPosterMode('day');
-                      setIsPosterOpen(true);
-                    }}
-                    className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white shadow-sm shadow-sky-500/20 transition active:scale-95 cursor-pointer"
-                    title="Create Graphic Day Poster Locally & Download"
-                  >
-                    <Share2 className="w-4 h-4" />
-                    <span>Create Day Report Poster</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPosterMode('day');
+                        setIsPosterOpen(true);
+                      }}
+                      className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white shadow-sm shadow-sky-500/20 transition active:scale-95 cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Create Day Report Poster</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
+
+          {/* Electrician Day Actions: Submit to Engineer / Awaiting Approval / Poster */}
+          {!isEngineer && (
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+              {reportStatus !== 'Approved' ? (
+                (!dayPublished && reportStatus !== 'Submitted' && reportStatus !== 'Pending') ? (
+                  <button
+                    type="button"
+                    onClick={handleSubmitDayReportElectrician}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white font-extrabold text-sm rounded-2xl shadow-sm shadow-sky-500/25 active:scale-98 transition cursor-pointer"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>Submit Day Report to Engineer for Approval</span>
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+                        <div>
+                          <div className="text-xs font-black text-amber-900 dark:text-amber-200">
+                            Day Report Submitted • Awaiting Engineer Approval
+                          </div>
+                          <div className="text-[11px] text-amber-700 dark:text-amber-400">
+                            Day Power: {dayTotalKwh.toLocaleString()} kWh • PF {dayPowerFactor} • Diesel: {totalDieselConsumedDay} L
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleSubmitDayReportElectrician}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 dark:hover:bg-sky-900 border border-sky-200 dark:border-sky-800 transition cursor-pointer"
+                        title="Update and Re-Submit Day Report"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Update & Re-Submit</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-3 flex-col sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={handleShareDayWhatsApp}
+                        className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95 cursor-pointer"
+                      >
+                        {dayCopied ? <Check className="w-4 h-4 text-white" /> : <MessageSquare className="w-4 h-4 text-white" />}
+                        <span>{dayCopied ? 'Copied & Opened!' : 'Share Day Report to WhatsApp'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPosterMode('day');
+                          setIsPosterOpen(true);
+                        }}
+                        className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white shadow-sm shadow-sky-500/20 transition active:scale-95 cursor-pointer"
+                      >
+                        <Share2 className="w-4 h-4" />
+                        <span>Create Day Report Poster</span>
+                      </button>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
+                      <div>
+                        <div className="text-xs font-black text-emerald-900 dark:text-emerald-200">
+                          Day Report Approved by Electrical Engineer (Locked)
+                        </div>
+                        <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                          Day Power: {dayTotalKwh.toLocaleString()} kWh • Day PF {dayPowerFactor} • Diesel: {totalDieselConsumedDay} L
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 flex-col sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleShareDayWhatsApp}
+                      className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95 cursor-pointer"
+                    >
+                      {dayCopied ? <Check className="w-4 h-4 text-white" /> : <MessageSquare className="w-4 h-4 text-white" />}
+                      <span>{dayCopied ? 'Copied & Opened!' : 'Share Day Report to WhatsApp'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPosterMode('day');
+                        setIsPosterOpen(true);
+                      }}
+                      className="flex-1 w-full flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-black bg-gradient-to-r from-sky-500 to-cyan-600 hover:from-sky-600 hover:to-cyan-700 text-white shadow-sm shadow-sky-500/20 transition active:scale-95 cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Create Day Report Poster</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
       )}
 
       {/* ======================================================== */}
-      {/* SCREEN 3: REPORTS ONLY (MONTHLY AUDIT & HISTORICAL SHEETS) */}
+      {/* 3. SCREEN: MONTHLY REPORTS                               */}
       {/* ======================================================== */}
       {currentScreen === 'reports' && (
         <div className="bg-white dark:bg-[#0c1f2b] border border-sky-200/80 dark:border-sky-950 rounded-3xl p-6 shadow-xs space-y-6 animate-fade-in max-w-6xl mx-auto">
@@ -1268,7 +1579,7 @@ export default function ElectricalTab({
             <div>
               <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <FileSpreadsheet className="w-5 h-5 text-sky-500" />
-                <span>Monthly Electrical Reports & Historical Sheets</span>
+                <span>Monthly Reports</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Daily logged data automatically accumulates into specialized audit sheets for APCPDCL compliance.
@@ -1310,7 +1621,7 @@ export default function ElectricalTab({
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
             <button
               onClick={() => setReportsSubSheet('power')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 reportsSubSheet === 'power'
                   ? 'bg-sky-500 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -1321,7 +1632,7 @@ export default function ElectricalTab({
 
             <button
               onClick={() => setReportsSubSheet('dg')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 reportsSubSheet === 'dg'
                   ? 'bg-sky-500 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -1332,7 +1643,7 @@ export default function ElectricalTab({
 
             <button
               onClick={() => setReportsSubSheet('solar')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 reportsSubSheet === 'solar'
                   ? 'bg-sky-500 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -1343,7 +1654,7 @@ export default function ElectricalTab({
 
             <button
               onClick={() => setReportsSubSheet('master')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 reportsSubSheet === 'master'
                   ? 'bg-sky-500 text-white shadow-xs'
                   : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -1470,19 +1781,19 @@ export default function ElectricalTab({
           <div className="flex items-center justify-end gap-2.5 pt-2">
             <button
               onClick={handleExportPowerCsv}
-              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition"
+              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
             >
               Download Power Sheet CSV
             </button>
             <button
               onClick={handleExportDgCsv}
-              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition"
+              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
             >
               Download DG Sheet CSV
             </button>
             <button
               onClick={handleExportSolarCsv}
-              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition"
+              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
             >
               Download Solar Sheet CSV
             </button>
@@ -1511,7 +1822,7 @@ export default function ElectricalTab({
             diffMvah: shiftDiffMvah,
             consumedKvah: shiftConsumedKvah,
             powerFactor: shiftPowerFactor,
-            electricalIncharge: shiftOfficer,
+            electricalIncharge: isEngineer ? 'Electrical Engineer' : shiftOfficer,
             outageMinutes: totalPowerCutMinutes,
             reportTime: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
           } : {
@@ -1530,9 +1841,9 @@ export default function ElectricalTab({
             solarDayGen,
             solarDayExport,
             totalPowerCutMinutes,
-            electricalIncharge: shiftOfficer,
+            electricalIncharge: 'Electrical Engineer',
             status: reportStatus,
-            approvedBy
+            approvedBy: isEngineer ? 'Electrical Engineer' : approvedBy
           }}
         />
       )}
